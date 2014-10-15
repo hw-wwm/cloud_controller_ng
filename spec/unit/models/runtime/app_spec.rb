@@ -2044,7 +2044,7 @@ module VCAP::CloudController
 
         before do
           subject.environment_json = {"CF_DIEGO_RUN_BETA" => "true"}
-          allow(AppObserver).to receive(:routes_changed)
+          # allow(AppObserver).to receive(:routes_changed)
         end
 
         it "do not update the app's version" do
@@ -2055,6 +2055,35 @@ module VCAP::CloudController
         it "calls the app observer with the app" do
           expect(AppObserver).to receive(:routes_changed).with(subject)
           subject.add_route(route)
+        end
+
+        it "calls the app observer when route_guids are updated", isolation: :truncation do
+          expect(AppObserver).to receive(:routes_changed).with(subject)
+
+          subject.route_guids = [route.guid]
+        end
+
+        context "when modifying multiple routes at one time" do
+          let(:routes) { 3.times.collect { Route.make :domain => domain, :space => subject.space } }
+
+          before do
+            subject.add_route(route)
+            subject.save
+          end
+
+          it "calls the app observer once when multiple routes have changed", isolation: :truncation do
+            expect(AppObserver).to receive(:routes_changed).with(subject).once.and_call_original
+
+            # p routes.map { |route| route.guid }
+            p starting: subject.uris
+            routes.each do |r|
+              subject.add_route(r)
+            end
+            p after: subject.uris
+            subject.remove_route(route)
+            p end: subject.uris
+            subject.save
+          end
         end
       end
     end

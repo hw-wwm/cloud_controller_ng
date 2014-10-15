@@ -25,12 +25,14 @@ module VCAP::CloudController
 
         if changes.has_key?(:state)
           react_to_state_change(app)
-        elsif changes.has_key?(:instances)
-          react_to_instances_change(app)
+        else
+          react_to_instances_change(app) if changes.has_key?(:instances)
+          routes_changed(app) if changes.has_key?(:routes)
         end
       end
 
       def routes_changed(app)
+        puts 'in routes_changed'
         @backends.find_one_to_run(app).update_routes()
       end
 

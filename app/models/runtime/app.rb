@@ -76,7 +76,7 @@ module VCAP::CloudController
 
     # marked as true on changing the associated routes, and reset by
     # +Dea::Client.start+
-    attr_accessor :routes_changed
+#    attr_accessor :routes_changed
 
     # Last staging response which will contain streaming log url
     attr_accessor :last_stager_response
@@ -557,14 +557,23 @@ module VCAP::CloudController
     private
 
     def mark_routes_changed(_ = nil)
+      unless @routes_changed
+        App.db.after_commit do
+          p self_routes: self.routes
+
+          puts "before routes_changed1 #{AppObserver.method(:routes_changed).source_location}"
+          puts "before routes_changed2 #{AppObserver.public_methods}"
+          AppObserver.routes_changed(self)
+          puts 'after routes_changed'
+        end
+      end
+      puts "routes_changed #{AppObserver.class}"
       @routes_changed = true
 
       if !run_with_diego?
         set_new_version
         save
       end
-
-      AppObserver.routes_changed(self)
     end
 
     # there's no concrete schema for what constitutes a valid docker
