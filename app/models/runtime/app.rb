@@ -559,8 +559,12 @@ module VCAP::CloudController
     def mark_routes_changed(_ = nil)
       @routes_changed = true
 
-      set_new_version
-      save
+      if !run_with_diego?
+        set_new_version
+        save
+      end
+
+      AppObserver.routes_changed(self)
     end
 
     # there's no concrete schema for what constitutes a valid docker

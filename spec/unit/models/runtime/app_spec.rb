@@ -2034,6 +2034,29 @@ module VCAP::CloudController
           expect(subject.diego).to be(true)
         end
       end
+
+      context "when adding and removing routes" do
+        let(:domain) do
+          PrivateDomain.make :owning_organization => subject.space.organization
+        end
+
+        let(:route) { Route.make :domain => domain, :space => subject.space }
+
+        before do
+          subject.environment_json = {"CF_DIEGO_RUN_BETA" => "true"}
+          allow(AppObserver).to receive(:routes_changed)
+        end
+
+        it "do not update the app's version" do
+          expect { subject.add_route(route) }.to_not change(subject, :version)
+          expect { subject.remove_route(route) }.to_not change(subject, :version)
+        end
+
+        it "calls the app observer with the app" do
+          expect(AppObserver).to receive(:routes_changed).with(subject)
+          subject.add_route(route)
+        end
+      end
     end
   end
 end
