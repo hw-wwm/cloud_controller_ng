@@ -183,6 +183,39 @@ resource 'Packages (Experimental)', type: :api do
       end
     end
 
+    post '/v3/packages/:guid/droplets' do
+      parameter :buildpack, 'Buildpack used to stage package', required: false
+      parameter :staging_environment_variables, 'Environment variables to use during staging', required: false
+
+      # before do
+      #   space.organization.add_user(user)
+      #   space.add_developer(user)
+      # end
+
+      example do
+        expect {
+          do_request
+        }.to change { VCAP::CloudController::DropletModel.count }.by(1)
+
+        droplet = VCAP::CloudController::DropletModel.last
+        expected_response = {
+          'guid' => droplet.guid,
+          'state' => 'STAGING',
+          'droplet_hash' => nil,
+          'buildpack' => nil,
+          'staging_environment_variables' => nil,
+          '_links'     => {
+            'self'   => { 'href' => "/v3/droplets/#{droplet.guid}" },
+          }
+        }
+
+        expect(response_status).to eq(201)
+
+        # puts "BODY: #{response_body}"
+        parsed_response = MultiJson.load(response_body)
+        expect(parsed_response).to eq(expected_response)
+      end
+    end
     delete '/v3/packages/:guid' do
       let(:space) { VCAP::CloudController::Space.make }
       let(:space_guid) { space.guid }

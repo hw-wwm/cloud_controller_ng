@@ -61,6 +61,7 @@ module VCAP::CloudController
       end
 
       def reserve_app_memory(dea_id, app_memory)
+        puts "ADS: #{@dea_advertisements}"
         @dea_advertisements.find { |ad| ad.dea_id == dea_id }.decrement_memory(app_memory)
       end
 

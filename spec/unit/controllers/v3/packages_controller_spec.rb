@@ -26,6 +26,7 @@ module VCAP::CloudController
       )
     end
 
+
     before do
       allow(logger).to receive(:debug)
     end
@@ -306,6 +307,36 @@ module VCAP::CloudController
               expect(error.name).to eq 'NotAuthorized'
               expect(error.response_code).to eq 403
             end
+          end
+        end
+      end
+    end
+
+    describe 'stage' do
+      let(:package) { PackageModel.make }
+
+      context 'when the package does not exist' do
+        before do
+          allow(packages_handler).to receive(:stage).and_raise(PackagesHandler::PackageNotFound)
+        end
+
+        it 'returns a 404 ResourceNotFound error' do
+          expect {
+            packages_controller.stage(package.guid)
+          }.to raise_error do |error|
+            expect(error.name).to eq 'ResourceNotFound'
+            expect(error.response_code).to eq 404
+          end
+        end
+      end
+
+      context 'when the package exists' do
+        context 'and the user is a space developer' do
+          it 'returns a 201 Created response' do
+            expect(packages_handler).to receive(:stage)
+
+            response_code, _ = packages_controller.stage(package.guid)
+            expect(response_code).to eq 201
           end
         end
       end

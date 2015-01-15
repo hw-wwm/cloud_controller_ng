@@ -2,6 +2,88 @@ require 'presenters/message_bus/service_binding_presenter'
 
 module VCAP::CloudController
   module Dea
+    class StagingMessage
+      def initialize(config, blobstore_url_generator)
+        @blobstore_url_generator = blobstore_url_generator
+        @config = config
+      end
+
+      # def package_staging_request(package, task_id)
+      #   {
+      #     app_id:                       app.guid,
+      #     task_id:                      task_id,
+      #     properties:                   staging_task_properties(app),
+      #     # All url generation should go to blobstore_url_generator
+      #     download_uri:                 @blobstore_url_generator.app_package_download_url(app),
+      #     upload_uri:                   @blobstore_url_generator.droplet_upload_url(app),
+      #     buildpack_cache_download_uri: @blobstore_url_generator.buildpack_cache_download_url(app),
+      #     buildpack_cache_upload_uri:   @blobstore_url_generator.buildpack_cache_upload_url(app),
+      #     start_message:                start_app_message(app),
+      #     admin_buildpacks:             admin_buildpacks,
+      #     egress_network_rules:         staging_egress_rules,
+      #   }
+      # end
+
+      def app_staging_request(app, task_id)
+        {
+          app_id:                       app.guid,
+          task_id:                      task_id,
+          properties:                   staging_task_properties(app),
+          # All url generation should go to blobstore_url_generator
+          download_uri:                 @blobstore_url_generator.app_package_download_url(app),
+          upload_uri:                   @blobstore_url_generator.droplet_upload_url(app),
+          buildpack_cache_download_uri: @blobstore_url_generator.buildpack_cache_download_url(app),
+          buildpack_cache_upload_uri:   @blobstore_url_generator.buildpack_cache_upload_url(app),
+          start_message:                start_app_message(app),
+          admin_buildpacks:             admin_buildpacks,
+          egress_network_rules:         staging_egress_rules,
+        }
+      end
+
+      private
+
+      def staging_task_properties(app)
+        staging_task_base_properties(app).merge(app.buildpack.staging_message)
+      end
+
+      def staging_task_base_properties(app)
+        staging_env = EnvironmentVariableGroup.staging.environment_json
+        app_env     = app.environment_json || {}
+        env         = staging_env.merge(app_env).map { |k, v| "#{k}=#{v}" }
+
+        {
+          services: app.service_bindings.map { |sb| service_binding_to_staging_request(sb) },
+          resources: {
+            memory: app.memory,
+            disk: app.disk_quota,
+            fds: app.file_descriptors
+          },
+
+          environment: env,
+          meta: app.metadata
+        }
+      end
+
+      def service_binding_to_staging_request(service_binding)
+        ServiceBindingPresenter.new(service_binding).to_hash
+      end
+
+      def staging_egress_rules
+        staging_security_groups = SecurityGroup.where(staging_default: true).all
+        EgressNetworkRulesPresenter.new(staging_security_groups).to_array
+      end
+
+      def admin_buildpacks
+        AdminBuildpacksPresenter.new(@blobstore_url_generator).to_staging_message_array
+      end
+
+      def start_app_message(app)
+        msg = Dea::StartAppMessage.new(app, 0, @config, @blobstore_url_generator)
+        msg[:sha1] = nil
+        msg
+      end
+    end
+
     class AppStagerTask
       STAGING_ALREADY_FAILURE_MSG = 'failed to stage application: staging had already been marked as failed, this could mean that staging took too long'
 
@@ -63,37 +145,39 @@ module VCAP::CloudController
 
       # We never stage if there is not a start request
       def staging_request
-        {
-          app_id:                       @app.guid,
-          task_id:                      task_id,
-          properties:                   staging_task_properties(@app),
-          # All url generation should go to blobstore_url_generator
-          download_uri:                 @blobstore_url_generator.app_package_download_url(@app),
-          upload_uri:                   @blobstore_url_generator.droplet_upload_url(@app),
-          buildpack_cache_download_uri: @blobstore_url_generator.buildpack_cache_download_url(@app),
-          buildpack_cache_upload_uri:   @blobstore_url_generator.buildpack_cache_upload_url(@app),
-          start_message:                start_app_message,
-          admin_buildpacks:             admin_buildpacks,
-          egress_network_rules:         staging_egress_rules,
-        }
+        StagingMessage.new(@config, @blobstore_url_generator).app_staging_request(@app, task_id)
+        # {
+        #   app_id:                       @app.guid,
+        #   task_id:                      task_id,
+        #   properties:                   staging_task_properties(@app),
+        #   # All url generation should go to blobstore_url_generator
+        #   download_uri:                 @blobstore_url_generator.app_package_download_url(@app),
+        #   upload_uri:                   @blobstore_url_generator.droplet_upload_url(@app),
+        #   buildpack_cache_download_uri: @blobstore_url_generator.buildpack_cache_download_url(@app),
+        #   buildpack_cache_upload_uri:   @blobstore_url_generator.buildpack_cache_upload_url(@app),
+        #   start_message:                start_app_message,
+        #   admin_buildpacks:             admin_buildpacks,
+        #   egress_network_rules:         staging_egress_rules,
+        # }
       end
+
 
       private
 
-      def staging_egress_rules
-        staging_security_groups = SecurityGroup.where(staging_default: true).all
-        EgressNetworkRulesPresenter.new(staging_security_groups).to_array
-      end
+      # def staging_egress_rules
+      #   staging_security_groups = SecurityGroup.where(staging_default: true).all
+      #   EgressNetworkRulesPresenter.new(staging_security_groups).to_array
+      # end
 
-      def admin_buildpacks
-        AdminBuildpacksPresenter.new(@blobstore_url_generator).to_staging_message_array
-      end
+      # def admin_buildpacks
+      #   AdminBuildpacksPresenter.new(@blobstore_url_generator).to_staging_message_array
+      # end
 
-      def start_app_message
-        msg = Dea::StartAppMessage.new(@app, 0, @config, @blobstore_url_generator)
-        msg[:sha1] = nil
-        msg
-      end
+      # def start_app_message
+      #   msg = Dea::StartAppMessage.new(@app, 0, @config, @blobstore_url_generator)
+      #   msg[:sha1] = nil
+      #   msg
+      # end
 
       def handle_first_response(response, error, promise)
         ensure_staging_is_current!
@@ -180,43 +264,45 @@ module VCAP::CloudController
 
       def staging_completion(stager_response)
         instance_was_started_by_dea = !!stager_response.droplet_hash
-        @app.db.transaction do
-          @app.lock!
-          @app.mark_as_staged
-          @app.update_detected_buildpack(stager_response.detected_buildpack, stager_response.buildpack_key)
-          @app.current_droplet.update_detected_start_command(stager_response.detected_start_command) if @app.current_droplet
-        end
+        # @app.db.transaction do
+        #   @app.lock!
+        #   @app.mark_as_staged
+        #   @app.update_detected_buildpack(stager_response.detected_buildpack, stager_response.buildpack_key)
+        #   @app.current_droplet.update_detected_start_command(stager_response.detected_start_command) if @app.current_droplet
+        # end
 
+        # @dea_pool.mark_app_started(dea_id: @stager_id, app_id: @app.guid) if instance_was_started_by_dea
+
+        # @completion_callback.call(started_instances: instance_was_started_by_dea ? 1 : 0) if @completion_callback
         @dea_pool.mark_app_started(dea_id: @stager_id, app_id: @app.guid) if instance_was_started_by_dea
-
-        @completion_callback.call(started_instances: instance_was_started_by_dea ? 1 : 0) if @completion_callback
+        @completion_callback.call(stager_response) if @completion_callback
       end
 
-      def staging_task_properties(app)
-        staging_task_base_properties(app).merge(app.buildpack.staging_message)
-      end
+      # def staging_task_properties(app)
+      #   staging_task_base_properties(app).merge(app.buildpack.staging_message)
+      # end
 
-      def staging_task_base_properties(app)
-        staging_env = EnvironmentVariableGroup.staging.environment_json
-        app_env     = app.environment_json || {}
-        env         = staging_env.merge(app_env).map { |k, v| "#{k}=#{v}" }
+      # def staging_task_base_properties(app)
+      #   staging_env = EnvironmentVariableGroup.staging.environment_json
+      #   app_env     = app.environment_json || {}
+      #   env         = staging_env.merge(app_env).map { |k, v| "#{k}=#{v}" }
 
-        {
-          services: app.service_bindings.map { |sb| service_binding_to_staging_request(sb) },
-          resources: {
-            memory: app.memory,
-            disk: app.disk_quota,
-            fds: app.file_descriptors
-          },
+      #   {
+      #     services: app.service_bindings.map { |sb| service_binding_to_staging_request(sb) },
+      #     resources: {
+      #       memory: app.memory,
+      #       disk: app.disk_quota,
+      #       fds: app.file_descriptors
+      #     },
 
-          environment: env,
-          meta: app.metadata
-        }
-      end
+      #     environment: env,
+      #     meta: app.metadata
+      #   }
+      # end
 
-      def service_binding_to_staging_request(service_binding)
-        ServiceBindingPresenter.new(service_binding).to_hash
-      end
+      # def service_binding_to_staging_request(service_binding)
+      #   ServiceBindingPresenter.new(service_binding).to_hash
+      # end
 
       def staging_timeout
         @config[:staging][:timeout_in_seconds]

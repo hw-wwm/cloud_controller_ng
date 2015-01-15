@@ -40,6 +40,10 @@ module VCAP::CloudController
       app.stage_with_diego? ? diego_stager(app) : dea_stager(app)
     end
 
+    def dea_stager(app)
+      Dea::Stager.new(app, @config, @message_bus, @dea_pool, @stager_pool, @runners)
+    end
+
     private
 
     def diego_staging_disabled?
@@ -48,10 +52,6 @@ module VCAP::CloudController
 
     def docker_disabled?
       !@config[:diego_docker]
-    end
-
-    def dea_stager(app)
-      Dea::Stager.new(app, @config, @message_bus, @dea_pool, @stager_pool, @runners)
     end
 
     def diego_stager(app)

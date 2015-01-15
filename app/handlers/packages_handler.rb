@@ -13,6 +13,20 @@ module VCAP::CloudController
     end
   end
 
+  class PackageStagingMessage
+    attr_reader :droplet_guid, :package_guid
+
+    def initialize(package_guid, droplet_guid)
+      @package_guid = package_guid
+      @droplet_guid = droplet_guid
+    end
+
+    def validate
+      return false, 'A droplet guid must be given.' unless @droplet_guid
+      true
+    end
+  end
+
   class PackageCreateMessage
     attr_reader :space_guid, :type, :url
     attr_accessor :error
@@ -69,8 +83,9 @@ module VCAP::CloudController
     class PackageNotFound < StandardError; end
     class BitsAlreadyUploaded < StandardError; end
 
-    def initialize(config)
+    def initialize(config, stagers)
       @config = config
+      @stagers = stagers
     end
 
     def create(message, access_context)
@@ -134,6 +149,150 @@ module VCAP::CloudController
       return nil if package.nil?
       raise Unauthorized if access_context.cannot?(:read, package)
       package
+    end
+
+    def stage(message, access_context)
+      package = PackageModel.find(guid: message.package_guid)
+      droplet = DropletModel.find(guid: message.droplet_guid)
+      # return nil if droplet.nil?
+      # raise Unauthorized if access_context.cannot?(:read, droplet)
+      # return nil if package.nil?
+      # raise Unauthorized if access_context.cannot?(:read, package)
+
+      #whatever
+      app = AppFromPackageAdapter.new(package, droplet)
+      @stagers.dea_stager(app).stage_package
+    end
+  end
+
+  class AppFromPackageAdapter
+    class Stacky
+      def name
+        'lucid64'
+      end
+    end
+    def initialize(package, droplet)
+      @package = package
+      @droplet = droplet
+    end
+
+    def db
+      @droplet.db
+    end
+
+    def mark_as_staged
+      @droplet.update(state: DropletModel::STAGED_STATE)
+    end
+
+    def update_detected_buildpack(output, key)
+    end
+
+    def lock!
+      @droplet.lock!
+    end
+
+    def current_droplet
+      nil
+    end
+
+    def update(opts)
+      @staging_task_id = opts[:staging_task_id]
+    end
+
+    def guid
+      @package.guid
+    end
+
+    def space
+      Space.find(guid: @package.space_guid)
+    end
+
+    def refresh
+      @package.refresh
+    end
+
+    def file_descriptors
+      1024
+    end
+
+    def memory
+      1024
+    end
+
+    def disk_quota
+      -1 #why?
+    end
+
+    def environment_json
+      nil
+    end
+
+    def staging_task_id
+      @staging_task_id
+    end
+
+    def staging_failed?
+      false
+    end
+
+    def service_bindings
+      {}
+    end
+
+    def stack
+      Stacky.new
+    end
+
+    def metadata
+      nil
+    end
+
+    def buildpack
+      AutoDetectionBuildpack.new
+    end
+
+    def name
+      guid
+    end
+
+    def uris
+      nil
+    end
+
+    def production
+      nil
+    end
+
+    def droplet_hash
+      nil
+    end
+
+    def current_droplet
+      nil
+    end
+
+    def version
+      nil
+    end
+
+    def console
+      nil
+    end
+
+    def debug
+      nil
+    end
+
+    def command
+      nil
+    end
+
+    def health_check_timeout
+      60
+    end
+
+    def vcap_application
+      nil
     end
   end
 end

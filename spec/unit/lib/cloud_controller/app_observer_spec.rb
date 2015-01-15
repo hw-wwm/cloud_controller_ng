@@ -1,30 +1,3 @@
-require 'spec_helper'
-
-module VCAP::CloudController
-  describe AppObserver do
-    let(:stagers) { double(:stagers, stager_for_app: stager) }
-    let(:runners) { double(:runners, runner_for_app: runner) }
-    let(:stager) { double(:stager) }
-    let(:runner) { double(:runner, stop: nil, start: nil) }
-    let(:app) do
-      double(
-        :app,
-        package_hash: package_hash,
-        guid: 'app-guid',
-        previous_changes: previous_changes,
-        started?: app_started,
-        needs_staging?: app_needs_staging,
-      )
-    end
-    let(:app_started) { false }
-    let(:app_needs_staging) { false }
-    let(:previous_changes) { nil }
-    let(:package_hash) { nil }
-
-    before do
-      AppObserver.configure(stagers, runners)
-    end
-
     describe '.deleted' do
       subject { AppObserver.deleted(app) }
 

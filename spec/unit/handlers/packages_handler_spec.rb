@@ -396,6 +396,7 @@ module VCAP::CloudController
               packages_handler.delete(package_guid, access_context)
             }.to change { Delayed::Job.count }.by(1)
           end
+
         end
       end
 
@@ -410,6 +411,106 @@ module VCAP::CloudController
             expect(deleted_package).to be_nil
           }.to raise_error(PackagesHandler::Unauthorized)
           expect(access_context).to have_received(:cannot?).with(:delete, kind_of(PackageModel), space)
+        end
+      end
+    end
+
+    describe 'stage' do
+      let(:package) { PackageModel.make(space_guid: space.guid) }
+      let(:droplet) { DropletModel.make }
+      let(:package_guid) { package.guid }
+      let(:droplet_guid) { droplet.guid }
+      let(:staging_message) { PackageStagingMessage.new(package_guid, droplet_guid) }
+
+      let!(:stagers) { CloudController::DependencyLocator.instance.stagers }
+      let(:message_bus) { Config.message_bus }
+      let(:stager_id) { 'abc123' }
+      let(:stager_subject) { "staging.#{stager_id}.start" }
+      let(:advertisment) do
+        {
+          'id' => stager_id,
+          'stacks' => ['lucid64'],
+          'available_memory' => 2048,
+        }
+      end
+      let(:reply_json_error) { nil }
+      let(:task_streaming_log_url) { 'task-streaming-log-url' }
+      let(:first_reply_json) do
+        {
+          'task_id' => 'task-id',
+          'task_log' => 'task-log',
+          'task_streaming_log_url' => task_streaming_log_url,
+          'detected_buildpack' => nil,
+          'detected_start_command' => nil,
+          'buildpack_key' => nil,
+          'error' => reply_json_error,
+          'droplet_sha1' => nil
+        }
+      end
+      let(:reply_error_info) { nil }
+      let(:detected_buildpack) { nil }
+      let(:detected_start_command) { 'wait_for_godot' }
+      let(:buildpack_key) { nil }
+      let(:second_reply_json) do
+        {
+          'task_id' => 'task-id',
+          'task_log' => 'task-log',
+          'task_streaming_log_url' => nil,
+          'detected_buildpack' => detected_buildpack,
+          'buildpack_key' => buildpack_key,
+          'detected_start_command' => detected_start_command,
+          'error' => reply_json_error,
+          'error_info' => reply_error_info,
+          'droplet_sha1' => 'droplet-sha1'
+        }
+      end
+
+      before do
+        allow(EM).to receive(:add_timer)
+        allow(EM).to receive(:schedule_sync) do |&blk|
+          promise = VCAP::Concurrency::Promise.new
+
+          begin
+            if blk.arity > 0
+              blk.call(promise)
+            else
+              promise.deliver(blk.call)
+            end
+          rescue => e
+            promise.fail(e)
+          end
+
+          message_bus.respond_to_request(stager_subject, first_reply_json)
+
+          promise.resolve
+        end
+      end
+
+      context 'when the package does not exist'
+      context 'when the package does exist' do
+        context 'and the user is not a space developer'
+        context 'and the user is a space developer' do
+          before do
+            Dea::Client.run
+          end
+
+          it 'initiates a staging request and stages the package' do
+            expect(EM).to receive(:defer) do |&blk|
+              blk.call
+            end
+
+            packages_handler = described_class.new(config, stagers)
+
+            message_bus.publish('staging.advertise', advertisment)
+            message_bus.publish('dea.advertise', advertisment)
+            # binding.pry
+
+            packages_handler.stage(staging_message, access_context)
+
+            message_bus.respond_to_request(stager_subject, second_reply_json)
+
+            expect(droplet.refresh.state).to eq (DropletModel::STAGED_STATE)
+          end
         end
       end
     end

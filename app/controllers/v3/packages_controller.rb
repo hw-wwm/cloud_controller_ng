@@ -70,6 +70,24 @@ module VCAP::CloudController
       unauthorized!
     end
 
+    post '/v3/packages/:guid/droplets', :stage
+    def stage(package_guid)
+      droplet = DropletModel.new
+      droplet.save
+
+      staging_message = PackageStagingMessage.new(package_guid, droplet.guid)
+
+      @packages_handler.stage(staging_message, @access_context)
+      # @packages_handler.stage(package_guid, droplet.guid, @access_context)
+
+      [HTTP::CREATED, MultiJson.dump({ guid: droplet.guid, state: 'STAGING', droplet_hash: nil,
+                                        buildpack: nil, staging_environment_variables: nil,
+                                        _links: { self: { href: "/v3/droplets/#{droplet.guid}" } }
+                                    })]
+    rescue PackagesHandler::PackageNotFound
+      package_not_found!
+    end
+
     private
 
     def package_not_found!
